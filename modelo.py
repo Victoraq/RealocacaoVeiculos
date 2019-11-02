@@ -212,8 +212,8 @@ def main():
     t_inicial = datetime.now()
     
     # leitura dos dados
-    data, regions = get_data(path, time_space, time_interval)
-
+    data, regions = get_data(path, time_space, time_interval) 
+    
 
     # ### Localizando viagens por regiões em vez de coordenadas
 
@@ -310,12 +310,14 @@ def main():
                 for t in time_instants)
         for p in locais), GRB.MAXIMIZE)
 
+    if not os.path.exists('data'):
+        os.makedirs('data')
 
-
-    m.write("model.lp")
+    m.write("data/realocacao_model.lp")
     print('\n')
     print('Otimização..')
     print(m.optimize())
+    m.write("data/realocacao_solution.sol")
 
     t_final = datetime.now()
 
@@ -323,16 +325,17 @@ def main():
     duracao = duracao.total_seconds()
     t_inicial = t_inicial.strftime("%d/%m/%Y %H:%M:%S")
 
-    if not os.path.exists('model_data.csv'):
-        with open('model_data.csv', mode='a') as table:
+    if not os.path.exists('data/model_data.csv'):
+        with open('data/model_data.csv', mode='a') as table:
             table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            table_writer.writerow(['inicio','arquivo','espaco_tempo',
-                                    'intervalo_tempo','duracao(seg)','tamanho_amostra'])
+            table_writer.writerow(['inicio','arquivo','espaco_tempo', 'intervalo_tempo',
+                                   'duracao(seg)','tamanho_amostra', 'valor_objetivo'])
 
-    with open('model_data.csv', mode='a') as table:
+    with open('data/model_data.csv', mode='a') as table:
         table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-        table_writer.writerow([t_inicial,path,time_space, time_interval,duracao,len(data)])
+        table_writer.writerow([t_inicial, path, time_space, time_interval, 
+                               duracao, len(data), m.ObjVal])
 
 
 if __name__ == "__main__":
