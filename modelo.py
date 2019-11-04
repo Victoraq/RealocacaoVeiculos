@@ -6,8 +6,6 @@
 
 
 from gurobipy import *
-import seaborn as sns
-import matplotlib.pyplot as plt
 from datetime import timedelta, datetime
 import pandas as pd
 import numpy as np
@@ -208,6 +206,12 @@ def main():
     except:
         time_space='m'
         time_interval='1-w'
+    
+    # se o usuário já tiver o lp não é necessário remontar as variáveis e restrições
+    try:
+        model_lp = sys.argv[4]
+    except:
+        model_lp = None
 
     t_inicial = datetime.now()
     
@@ -235,87 +239,93 @@ def main():
     # Todos os instantes de tempo em timestamp
     time_instants = pd.date_range(start=data.Start_time.min(), end=data.End_time.max(), freq='h') 
     viagem_id = data.index.values                   # id de todas as viagens
-    n_vehicles = len(data.Id.unique())              # numero total de veículos
+    n_vehicles = int(len(data.Id.unique()) * 0.2)   # numero total de veículos
     custo_h = 15.0                                  # custo por hora
 
 
     print('Montando o modelo...')
     m = Model("realocacao")
 
-
-    # Variável que indica se ocorreu a viagem com realocação para p
-    print('Variável que indica se ocorreu a viagem com realocação para p')
-    locais = [None] + list(data.start_region.unique())
-    viagens_realizadas = {}
-    for v in viagem_id:
-        #print('Quantas viagens faltam:',len(viagem_id) - c)
-        #print('Tamanho do vetor de x:', len(viagens_realizadas))
-        start_region = data.start_region.loc[v]
-        for p in locais:
-            # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
-            end_in_p = data[(data.start_region == start_region) & (data.end_region == p)]
-            if len(end_in_p) > 0 or p is None:
-                viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
-
-
-
-    # Variável que indica quantos veículos estão em cada estação em dado momento
-    print('Variável que indica quantos veículos estão em cada estação em dado momento')
-    veiculos_ociosos = {}
-    for l in locais:
-        for t in time_instants:
-            veiculos_ociosos[(l,t)] = m.addVar(vtype=GRB.INTEGER, name='e_'+str(l)+'_'+str(t.value))
+    if model_lp == None:
+        # Variável que indica se ocorreu a viagem com realocação para p
+        print('Variável que indica se ocorreu a viagem com realocação para p')
+        locais = [None] + list(data.start_region.unique())
+        viagens_realizadas = {}
+        for v in viagem_id:
+            #print('Quantas viagens faltam:',len(viagem_id) - c)
+            #print('Tamanho do vetor de x:', len(viagens_realizadas))
+            start_region = data.start_region.loc[v]
+            for p in locais:
+                # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
+                end_in_p = data[(data.start_region == start_region) & (data.end_region == p)]
+                if len(end_in_p) > 0 or p is None:
+                    viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
 
 
 
-    # Restrição de fluxo
-    print('Restrição de fluxo')
-    viagens_r = viagens_realizadas.keys()
+        # Variável que indica quantos veículos estão em cada estação em dado momento
+        print('Variável que indica quantos veículos estão em cada estação em dado momento')
+        veiculos_ociosos = {}
+        for l in locais:
+            for t in time_instants:
+                veiculos_ociosos[(l,t)] = m.addVar(vtype=GRB.INTEGER, name='e_'+str(l)+'_'+str(t.value))
 
-    for t in range(1,len(time_instants)): #para todo instante t
-        viagens_t = data[data.Start_time == time_instants[t-1]].index.values #tempo anterior
-        viagens_t2 = data[data.Start_time == time_instants[t]].index.values #atual
-        for p in locais: #ponto de parada
-            viagens_p = data[data['end_region'] == p].index.values #viagens de outros lugares para p
-            viagens_p2 = data[data['start_region'] == p].index.values # viagens de um ponto específico para outros lugares
+
+
+        # Restrição de fluxo
+        print('Restrição de fluxo')
+        viagens_r = viagens_realizadas.keys()
+
+        for t in range(1,len(time_instants)): #para todo instante t
+            viagens_t = data[data.Start_time == time_instants[t-1]].index.values #tempo anterior
+            viagens_t2 = data[data.Start_time == time_instants[t]].index.values #atual
+            for p in locais: #ponto de parada
+                viagens_p = data[data['end_region'] == p].index.values #viagens de outros lugares para p
+                viagens_p2 = data[data['start_region'] == p].index.values # viagens de um ponto específico para outros lugares
+                m.addConstr(
+                    veiculos_ociosos[p,time_instants[t-1]] + quicksum(viagens_realizadas[v,p] for v in viagens_p if (v,p) in viagens_r) == quicksum(viagens_realizadas[v,p]for v in viagens_p2 if (v,p) in viagens_r) + veiculos_ociosos[p,time_instants[t]],"fluxo_"+str(p)+"_"+str(time_instants[t].value)
+                )
+
+
+        # Restrição para indicar o número de veículos em cada estação
+        print('Restrição para indicar o número de veículos em cada estação')
+        m.addConstr(quicksum(veiculos_ociosos[p,time_instants[0]] for p in locais) == n_vehicles, name='n_veiculos')
+
+
+        # Restrição para evitar veículos realizarem mais de uma viagem ao mesmo tempo
+        print('Restrição para evitar veículos realizarem mais de uma viagem ao mesmo tempo')
+        for v in viagem_id:
             m.addConstr(
-                veiculos_ociosos[p,time_instants[t-1]] + quicksum(viagens_realizadas[v,p] for v in viagens_p if (v,p) in viagens_r) == quicksum(viagens_realizadas[v,p]for v in viagens_p2 if (v,p) in viagens_r) + veiculos_ociosos[p,time_instants[t]],"fluxo_"+str(p)+"_"+str(time_instants[t].value)
-            )
-
-
-    # Restrição para indicar o número de veículos em cada estação
-    print('Restrição para indicar o número de veículos em cada estação')
-    m.addConstr(quicksum(veiculos_ociosos[p,time_instants[0]] for p in locais) == n_vehicles, name='n_veiculos')
-
-
-    # Restrição para evitar veículos realizarem mais de uma viagem ao mesmo tempo
-    print('Restrição para evitar veículos realizarem mais de uma viagem ao mesmo tempo')
-    for v in viagem_id:
-        m.addConstr(
-            quicksum(viagens_realizadas[v,p] for p in locais if (v,p) in viagens_realizadas.keys())==1
-        , name='quant_viagem_'+str(v))
+                quicksum(viagens_realizadas[v,p] for p in locais if (v,p) in viagens_realizadas.keys())==1
+            , name='quant_viagem_'+str(v))
 
 
 
-    # função objetivo
-    print('Função objetivo')
-    m.setObjective(quicksum(
-        quicksum(
-            custo_h*viagens_realizadas[i,p]
-            for p in locais if (i,p) in viagens_r)
-        for i in viagem_id)
-        - quicksum(
+        # função objetivo
+        print('Função objetivo')
+        m.setObjective(quicksum(
             quicksum(
-                custo_h*veiculos_ociosos[p,t]
-                for t in time_instants)
-        for p in locais), GRB.MAXIMIZE)
+                custo_h*viagens_realizadas[i,p]
+                for p in locais if (i,p) in viagens_r)
+            for i in viagem_id)
+            - quicksum(
+                quicksum(
+                    custo_h*veiculos_ociosos[p,t]
+                    for t in time_instants)
+            for p in locais), GRB.MAXIMIZE)
 
-    if not os.path.exists('data'):
-        os.makedirs('data')
+        if not os.path.exists('data'):
+            os.makedirs('data')
 
-    m.write("data/realocacao_model.lp")
-    print('\n')
+        m.write("data/realocacao_model.lp")
+        print('\n')
+    else:
+        print("Lendo dados lp...")
+        m = read(model_lp)
+
+
     print('Otimização..')
+    m.Params.TimeLimit = 5400 # tempo limite de 1h e meia
     print(m.optimize())
     m.write("data/realocacao_solution.sol")
 
