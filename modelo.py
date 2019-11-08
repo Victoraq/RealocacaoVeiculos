@@ -203,10 +203,11 @@ def main():
     try:
         time_space = sys.argv[2]
         time_interval = sys.argv[3]
+        porcentagem = sys.argv[4]
     except:
         time_space='m'
         time_interval='1-w'
-    
+        porcentagem = 0.2
     # se o usuário já tiver o lp não é necessário remontar as variáveis e restrições
     try:
         model_lp = sys.argv[4]
@@ -239,7 +240,8 @@ def main():
     # Todos os instantes de tempo em timestamp
     time_instants = pd.date_range(start=data.Start_time.min(), end=data.End_time.max(), freq='h') 
     viagem_id = data.index.values                   # id de todas as viagens
-    n_vehicles = int(len(data.Id.unique()) * 0.2)   # numero total de veículos
+    
+    n_vehicles = int(len(data.Id.unique()) * porcentagem)   # numero total de veículos
     custo_h = 15.0                                  # custo por hora
 
 
