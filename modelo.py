@@ -204,10 +204,12 @@ def main():
         time_space = sys.argv[2]
         time_interval = sys.argv[3]
         porcentagem = sys.argv[4]
+        realocacao = sys.argv[5]
     except:
         time_space='m'
         time_interval='1-w'
         porcentagem = 0.2
+        realocacao = True
     # se o usuário já tiver o lp não é necessário remontar as variáveis e restrições
     try:
         model_lp = sys.argv[4]
@@ -257,12 +259,15 @@ def main():
             #print('Quantas viagens faltam:',len(viagem_id) - c)
             #print('Tamanho do vetor de x:', len(viagens_realizadas))
             start_region = data.start_region.loc[v]
-            for p in locais:
-                # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
-                end_in_p = data[(data.start_region == start_region) & (data.end_region == p)]
-                if len(end_in_p) > 0 or p is None:
-                    viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
-
+            if realocacao:
+                for p in locais:
+                    # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
+                    end_in_p = data[(data.start_region == start_region) & (data.end_region == p)]
+                    if len(end_in_p) > 0 or p is None:
+                        viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
+            else:
+                 viagens_realizadas[(v,None)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
+            
 
 
         # Variável que indica quantos veículos estão em cada estação em dado momento
