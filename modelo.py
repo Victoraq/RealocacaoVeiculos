@@ -243,7 +243,9 @@ def main():
     
     n_vehicles = int(len(data.Id.unique()) * porcentagem)   # numero total de veículos
     custo_h = 15.0                                  # custo por hora
-
+    travel_possibilities = set()                    # possibilidades de viagens
+    for t in map(tuple,data[['start_region','end_region']].values):
+        travel_possibilities.add(t)
 
     print('Montando o modelo...')
     m = Model("realocacao")
@@ -259,8 +261,7 @@ def main():
             start_region = data.start_region.loc[v]
             for p in locais:
                 # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
-                end_in_p = data[(data.start_region == start_region) & (data.end_region == p)]
-                if len(end_in_p) > 0 or p is None:
+                if (start_region,p) in travel_possibilities or p is None:
                     viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
 
 
