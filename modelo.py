@@ -116,6 +116,9 @@ def limpeza(data):
     # only travels with more than 30 minutes of duration, that is the limit of cancellation of a reserve
     data = data[(data['duration'] > 30) | (data['distance'] > 3)]
 
+    # preco real das viagens
+    data['price'] = data['duration'] * 0.41
+
     data.Start_time = pd.to_datetime(data.Start_time)
     data.End_time = pd.to_datetime(data.End_time)
 
@@ -197,6 +200,19 @@ def get_data(path, time_space='m', time_interval='1-w'):
         
     return data, regions
 
+
+def calcula_custo_realocacao(viagens, viagem_id, custo_viagens, local_realoc, bonus):
+    viagem = viagens[viagem_id]
+
+    custo_viagem = custo_viagens[(viagem[0],viagem[1])]
+
+    if local_realoc is None:
+        custo_realc = 0
+    else:
+        custo_realc = custo_viagens[(viagem[1],local_realoc)]
+    print('entrou')
+    return (custo_viagem - bonus*(custo_realc))
+
 def main():
 
     path = sys.argv[1]
@@ -205,11 +221,13 @@ def main():
         time_interval = sys.argv[3]
         porcentagem = sys.argv[4]
         realocacao = sys.argv[5]
+        bonus = sys.argv[6]
     except:
-        time_space='m'
-        time_interval='1-w'
+        time_space='h'
+        time_interval='1-d'
         porcentagem = 0.2
         realocacao = True
+        bonus = 0.5
     # se o usuário já tiver o lp não é necessário remontar as variáveis e restrições
     try:
         model_lp = sys.argv[4]
@@ -246,9 +264,14 @@ def main():
     n_vehicles = int(len(data.Id.unique()) * porcentagem)   # numero total de veículos
     custo_h = 15.0                                  # custo por hora
     travel_possibilities = set()                    # possibilidades de viagens
-    for t in map(tuple,data[['start_region','end_region']].values):
-        travel_possibilities.add(t)
+    custo_travels = {}                              # custo de cada viagem
 
+    # preenchendo possibilidades de viagens e seus custos
+    for t in map(tuple,data[['start_region','end_region','distance']].values):
+        travel_possibilities.add((t[0], t[1]))
+        # custo da viagem em relacao a distancia e assumindo uma velocidade de 60 km/h
+        custo_travels[(t[0],t[1])] = t[2] / 16.67 
+    
     print('Montando o modelo...')
     m = Model("realocacao")
 
@@ -310,9 +333,14 @@ def main():
 
         # função objetivo
         print('Função objetivo')
+
+        viagens = data[['start_region', 'end_region']].values
+
         m.setObjective(quicksum(
             quicksum(
-                custo_h*viagens_realizadas[i,p]
+                
+                calcula_custo_realocacao(viagens, i, custo_travels, p, bonus) * viagens_realizadas[i,p]
+
                 for p in locais if (i,p) in viagens_r)
             for i in viagem_id)
             - quicksum(
