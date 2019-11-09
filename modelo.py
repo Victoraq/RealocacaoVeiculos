@@ -204,18 +204,18 @@ def get_data(path, time_space='m', time_interval='1-w'):
     return data, regions
 
 
-def calcula_custo_realocacao(viagens, viagem_id, custo_viagens, local_realoc, bonus):
+def calcula_custo_realocacao(viagens, viagem_id, custo_realocacao, custo_real, local_realoc, bonus):
     """
     Calcula custo da viagem dado o bonus e sua realocação
     """
     viagem = viagens[viagem_id]
 
-    custo_viagem = custo_viagens[(viagem[0],viagem[1])]
+    custo_viagem = custo_real[(viagem[0],viagem[1])]
 
     if local_realoc is None:
         custo_realc = 0
     else:
-        custo_realc = custo_viagens[(viagem[1],local_realoc)]
+        custo_realc = custo_realocacao[(viagem[1],local_realoc)]
 
     return (custo_viagem - bonus*(custo_realc))
 
@@ -254,7 +254,8 @@ def main(argv):
         elif opt in ("-p", "--porcentagem"):
             porcentagem = float(arg)
         elif opt in ("-r", "--realocacao"):
-            realocacao = bool(arg)
+            if arg == 'True': realocacao = True
+            else: realocacao = False
         elif opt in ("-b", "--bonus"):
             bonus = float(arg)
 
@@ -269,7 +270,7 @@ def main(argv):
             bonus = {bonus}""")
 
 
-    if time_space == 'h': custo_fixo = 14.99
+    if time_space == 'h': custo_fixo = 0.41*60
     else: custo_fixo = 0.41
 
     t_inicial = datetime.now()
@@ -300,13 +301,16 @@ def main(argv):
     viagem_id = data.index.values                   # id de todas as viagens
     n_vehicles = int(len(data.Id.unique()) * porcentagem)   # numero total de veículos
     travel_possibilities = set()                    # possibilidades de viagens
-    custo_travels = {}                              # custo de cada viagem
+    custo_realocacao = {}                              # custo de cada viagem
+    custo_real = {}
 
     # preenchendo possibilidades de viagens e seus custos
-    for t in map(tuple,data[['start_region','end_region','distance']].values):
+    for t in map(tuple,data[['start_region','end_region','distance', 'price']].values):
         travel_possibilities.add((t[0], t[1]))
-        # custo da viagem em relacao a distancia e assumindo uma velocidade de 60 km/h
-        custo_travels[(t[0],t[1])] = (t[2] / 1000) * 0.41
+        # custo da realocacao em relacao a distancia e assumindo uma velocidade de 60 km/h
+        custo_realocacao[(t[0],t[1])] = (t[2] / 1000) * 0.41  # metros/min
+        # custo da viagem é o custo real do dataset
+        custo_real[(t[0],t[1])] = t[3]
     
     print('Montando o modelo...')
     m = Model("realocacao")
@@ -326,7 +330,7 @@ def main(argv):
                     if (end_region,p) in travel_possibilities or p is None:
                         viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
             else:
-                viagens_realizadas[(v,None)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
+                viagens_realizadas[(v,None)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(None))
 
 
         # Variável que indica quantos veículos estão em cada estação em dado momento
@@ -375,7 +379,7 @@ def main(argv):
         m.setObjective(quicksum(
             quicksum(
 
-                calcula_custo_realocacao(viagens, i, custo_travels, p, bonus) * viagens_realizadas[i,p]
+                calcula_custo_realocacao(viagens, i, custo_realocacao, custo_real, p, bonus) * viagens_realizadas[i,p]
 
                 for p in locais if (i,p) in viagens_realizadas.keys())
             for i in viagem_id)
@@ -410,13 +414,13 @@ def main(argv):
         with open('data/model_data.csv', mode='a') as table:
             table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             table_writer.writerow(['inicio','arquivo','espaco_tempo','intervalo_tempo','n_veiculos',
-                                   'bonus','duracao(seg)','tamanho_amostra','valor_objetivo','Gap'])
+                                   'bonus','duracao(seg)','tamanho_amostra','realocacao','valor_objetivo','Gap'])
 
     with open('data/model_data.csv', mode='a') as table:
         table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
         table_writer.writerow([t_inicial, path, time_space, time_interval, n_vehicles,
-                               bonus, duracao, len(data), m.ObjVal, m.MIPGap])
+                               bonus, duracao, len(data), realocacao, m.ObjVal, m.MIPGap])
 
 
 if __name__ == "__main__":
