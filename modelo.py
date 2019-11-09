@@ -9,6 +9,7 @@ from gurobipy import *
 from datetime import timedelta, datetime
 import pandas as pd
 import numpy as np
+import getopt
 import sys
 import os.path
 import csv
@@ -197,11 +198,16 @@ def get_data(path, time_space='m', time_interval='1-w'):
     # removendo regioes sem viagens
     regions = [r for r in regions if r['features'][0]['properties']['arrivals_outs'] != 0]
     regions.insert(0,None)
+
+    data.reset_index(inplace=True, drop=True)
         
     return data, regions
 
 
 def calcula_custo_realocacao(viagens, viagem_id, custo_viagens, local_realoc, bonus):
+    """
+    Calcula custo da viagem dado o bonus e sua realocação
+    """
     viagem = viagens[viagem_id]
 
     custo_viagem = custo_viagens[(viagem[0],viagem[1])]
@@ -210,29 +216,61 @@ def calcula_custo_realocacao(viagens, viagem_id, custo_viagens, local_realoc, bo
         custo_realc = 0
     else:
         custo_realc = custo_viagens[(viagem[1],local_realoc)]
-    print('entrou')
+
     return (custo_viagem - bonus*(custo_realc))
 
-def main():
+def main(argv):
 
-    path = sys.argv[1]
+    path = '.'
+    model_lp = None
+    time_space='h'
+    time_interval='1-d'
+    porcentagem = 0.2
+    realocacao = True
+    bonus = 0.3
+
     try:
-        time_space = sys.argv[2]
-        time_interval = sys.argv[3]
-        porcentagem = sys.argv[4]
-        realocacao = sys.argv[5]
-        bonus = sys.argv[6]
-    except:
-        time_space='h'
-        time_interval='1-d'
-        porcentagem = 0.2
-        realocacao = True
-        bonus = 0.5
-    # se o usuário já tiver o lp não é necessário remontar as variáveis e restrições
-    try:
-        model_lp = sys.argv[4]
-    except:
-        model_lp = None
+      opts, args = getopt.getopt(argv,"hi:d:h:m:g:i:p:r:b:",["datafile=","granularidade=",
+                                               "intervalo=","porcentagem=","realocacao=","bonus="])
+    except getopt.GetoptError:
+        print(
+            'modelo.py -d <datafile> -m <modelo> -g <granularidade> -i <intervalo> -p <porcentagem> -r <realocacao> -b <bonus>'
+            )
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '-h':
+            print(
+                'modelo.py -d <datafile> -m <modelo> -g <granularidade> -i <intervalo> -p <porcentagem> -r <realocacao> -b <bonus>'
+                )
+            sys.exit()
+        elif opt in ("-d", "--datafile"):
+            path = arg
+        elif opt in ("-m", "--modelo"):
+            modelo_lp = arg
+        elif opt in ("-g", "--granularidade"):
+            time_space = arg
+        elif opt in ("-i", "--intervalo"):
+            time_interval = arg
+        elif opt in ("-p", "--porcentagem"):
+            porcentagem = float(arg)
+        elif opt in ("-r", "--realocacao"):
+            realocacao = bool(arg)
+        elif opt in ("-b", "--bonus"):
+            bonus = float(arg)
+
+
+    print(f"""Parâmetros escolhidos:
+            datafile = {path},
+            model_lp = {model_lp},
+            granularidade = {time_space},
+            intervalo = {time_interval},
+            porcentagem = {porcentagem},
+            realocacao = {realocacao},
+            bonus = {bonus}""")
+
+
+    if time_space == 'h': custo_fixo = 14.99
+    else: custo_fixo = 0.41
 
     t_inicial = datetime.now()
     
@@ -260,9 +298,7 @@ def main():
     # Todos os instantes de tempo em timestamp
     time_instants = pd.date_range(start=data.Start_time.min(), end=data.End_time.max(), freq='h') 
     viagem_id = data.index.values                   # id de todas as viagens
-    
     n_vehicles = int(len(data.Id.unique()) * porcentagem)   # numero total de veículos
-    custo_h = 15.0                                  # custo por hora
     travel_possibilities = set()                    # possibilidades de viagens
     custo_travels = {}                              # custo de cada viagem
 
@@ -270,7 +306,7 @@ def main():
     for t in map(tuple,data[['start_region','end_region','distance']].values):
         travel_possibilities.add((t[0], t[1]))
         # custo da viagem em relacao a distancia e assumindo uma velocidade de 60 km/h
-        custo_travels[(t[0],t[1])] = t[2] / 16.67 
+        custo_travels[(t[0],t[1])] = (t[2] / 1000) * 0.41
     
     print('Montando o modelo...')
     m = Model("realocacao")
@@ -283,14 +319,14 @@ def main():
         for v in viagem_id:
             #print('Quantas viagens faltam:',len(viagem_id) - c)
             #print('Tamanho do vetor de x:', len(viagens_realizadas))
-            start_region = data.start_region.loc[v]
+            end_region = data.end_region.loc[v]
             if realocacao:
                 for p in locais:
                     # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
-                    if (start_region,p) in travel_possibilities or p is None:
+                    if (end_region,p) in travel_possibilities or p is None:
                         viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
             else:
-                 viagens_realizadas[(v,None)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
+                viagens_realizadas[(v,None)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
 
 
         # Variável que indica quantos veículos estão em cada estação em dado momento
@@ -338,14 +374,14 @@ def main():
 
         m.setObjective(quicksum(
             quicksum(
-                
+
                 calcula_custo_realocacao(viagens, i, custo_travels, p, bonus) * viagens_realizadas[i,p]
 
-                for p in locais if (i,p) in viagens_r)
+                for p in locais if (i,p) in viagens_realizadas.keys())
             for i in viagem_id)
             - quicksum(
                 quicksum(
-                    custo_h*veiculos_ociosos[p,t]
+                    custo_fixo*veiculos_ociosos[p,t]
                     for t in time_instants)
             for p in locais), GRB.MAXIMIZE)
 
@@ -373,15 +409,15 @@ def main():
     if not os.path.exists('data/model_data.csv'):
         with open('data/model_data.csv', mode='a') as table:
             table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            table_writer.writerow(['inicio','arquivo','espaco_tempo', 'intervalo_tempo',
-                                   'duracao(seg)','tamanho_amostra', 'valor_objetivo'])
+            table_writer.writerow(['inicio','arquivo','espaco_tempo','intervalo_tempo','n_veiculos',
+                                   'bonus','duracao(seg)','tamanho_amostra','valor_objetivo','Gap'])
 
     with open('data/model_data.csv', mode='a') as table:
         table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-        table_writer.writerow([t_inicial, path, time_space, time_interval, 
-                               duracao, len(data), m.ObjVal])
+        table_writer.writerow([t_inicial, path, time_space, time_interval, n_vehicles,
+                               bonus, duracao, len(data), m.ObjVal, m.MIPGap])
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
