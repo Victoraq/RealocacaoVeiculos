@@ -439,13 +439,12 @@ def main(argv):
             lucro_viagens_cr += m.getVarByName(nome).x * custo_real[(viagem[0],viagem[1])] # custo da viagem
 
             valor_realoc = bonus * m.getVarByName(nome).x * custo_realocacao[(viagem[1],float(destino))] # custo da realocacao
-            print(valor_realoc/bonus)
+
             custo_viagens_cr += valor_realoc
 
     custo_ociosos = 0
     for nome in nome_veiculos_o:
         custo_ociosos += m.getVarByName(nome).x * custo_fixo
-
 
 
     if not os.path.exists('data/model_data.csv'):
