@@ -331,9 +331,10 @@ def main(argv):
                     # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
                     if (end_region,p) in travel_possibilities or p is None:
                         viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
-                        nome_viagem_cr.append('x_'+str(v)+'_'+str(p))
                         if p == None:
                             nome_viagem_sr.append('x_'+str(v)+'_'+str(p))
+                        else:
+                            nome_viagem_cr.append('x_'+str(v)+'_'+str(p))
             else:
                 viagens_realizadas[(v,None)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(None))
                 nome_viagem_sr.append('x_'+str(v)+'_'+str(None))
@@ -416,21 +417,34 @@ def main(argv):
     duracao = duracao.total_seconds()
     t_inicial = t_inicial.strftime("%d/%m/%Y %H:%M:%S")
     
+    viagens = data[['start_region', 'end_region']].values
+
     ##calculando as variaveis
-    custo_viagens_sr = 0
+    lucro_viagens_sr = 0
     for nome in nome_viagem_sr:
         if m.getVarByName(nome).x == 1.0:
-            custo_viagens_sr += m.getVarByName(nome).x * custo_fixo
+            _, viagem_id, _ = nome.split('_')
+            viagem = viagens[int(viagem_id)]
+            lucro_viagens_sr += m.getVarByName(nome).x * custo_real[(viagem[0],viagem[1])]
             
-    custo_viagens_cr = 0        
+    custo_viagens_cr = 0 
+    lucro_viagens_cr = 0   
+    cont_realoc = 0    
     for nome in nome_viagem_cr:
         if m.getVarByName(nome).x == 1.0:
-            custo_viagens_cr += m.getVarByName(nome).x * custo_fixo
+            cont_realoc+=1
+            _, viagem_id, destino = nome.split('_')
+            viagem = viagens[int(viagem_id)]
+
+            lucro_viagens_cr += m.getVarByName(nome).x * custo_real[(viagem[0],viagem[1])] # custo da viagem
+
+            valor_realoc = bonus * m.getVarByName(nome).x * custo_realocacao[(viagem[1],float(destino))] # custo da realocacao
+            print(valor_realoc/bonus)
+            custo_viagens_cr += valor_realoc
 
     custo_ociosos = 0
     for nome in nome_veiculos_o:
-        if m.getVarByName(nome).x == 1.0:
-            custo_ociosos += m.getVarByName(nome).x * custo_fixo
+        custo_ociosos += m.getVarByName(nome).x * custo_fixo
 
 
 
@@ -439,14 +453,14 @@ def main(argv):
             table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             table_writer.writerow(['inicio','arquivo','espaco_tempo','intervalo_tempo','n_veiculos',
                                    'bonus','duracao(seg)','tamanho_amostra','realocacao','valor_objetivo',
-                                   'Gap', 'custo_viagens_sr', 'custo_viagens_cr', 'custo_ociosos'])
+                                   'Gap', 'lucro_viagens_sr', 'lucro_viagens_cr', 'custo_viagens_cr', 'quant_realoc', 'custo_ociosos'])
 
     with open('data/model_data.csv', mode='a') as table:
         table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
         table_writer.writerow([t_inicial, path, time_space, time_interval, n_vehicles,
                                bonus, duracao, len(data), realocacao, m.ObjVal, 
-                               m.MIPGap, custo_viagens_sr, custo_viagens_cr, custo_ociosos ])
+                               m.MIPGap, lucro_viagens_sr, lucro_viagens_cr, custo_viagens_cr, cont_realoc, custo_ociosos ])
 
 
 if __name__ == "__main__":
