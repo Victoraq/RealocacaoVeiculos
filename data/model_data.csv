@@ -1,0 +1,2 @@
+inicio;arquivo;espaco_tempo;intervalo_tempo;n_veiculos;bonus;duracao(seg);tamanho_amostra;realocacao;valor_objetivo;Gap;custo viagem sem realocacao;com realocacao;custo veiculos ociosos
+10/11/2019 09:25:59;../data/evo_travels.csv;m;1-d;229;0.3;5540.841238;9478;True;168037.88593835718;0.00017671987952114343;3850.309999999539;3885.979999999526;13.530000000000003

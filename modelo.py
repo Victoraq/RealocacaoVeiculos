@@ -223,7 +223,7 @@ def main(argv):
 
     path = '.'
     model_lp = None
-    time_space='h'
+    time_space='m'
     time_interval='1-d'
     porcentagem = 0.2
     realocacao = True
@@ -320,6 +320,8 @@ def main(argv):
         print('Variável que indica se ocorreu a viagem com realocação para p')
         locais = [None] + list(data.start_region.unique())
         viagens_realizadas = {}
+        nome_viagem_cr = []
+        nome_viagem_sr = []
         for v in viagem_id:
             #print('Quantas viagens faltam:',len(viagem_id) - c)
             #print('Tamanho do vetor de x:', len(viagens_realizadas))
@@ -329,17 +331,21 @@ def main(argv):
                     # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
                     if (end_region,p) in travel_possibilities or p is None:
                         viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
+                        nome_viagem_cr.append('x_'+str(v)+'_'+str(p))
+                        if p == None:
+                            nome_viagem_sr.append('x_'+str(v)+'_'+str(p))
             else:
                 viagens_realizadas[(v,None)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(None))
-
+                nome_viagem_sr.append('x_'+str(v)+'_'+str(None))
 
         # Variável que indica quantos veículos estão em cada estação em dado momento
         print('Variável que indica quantos veículos estão em cada estação em dado momento')
         veiculos_ociosos = {}
+        nome_veiculos_o = []
         for l in locais:
             for t in time_instants:
                 veiculos_ociosos[(l,t)] = m.addVar(vtype=GRB.INTEGER, name='e_'+str(l)+'_'+str(t.value))
-
+                nome_veiculos_o.append('e_'+str(l)+'_'+str(t.value))
 
 
         # Restrição de fluxo
@@ -409,18 +415,38 @@ def main(argv):
     duracao = t_final - t_inicial
     duracao = duracao.total_seconds()
     t_inicial = t_inicial.strftime("%d/%m/%Y %H:%M:%S")
+    
+    ##calculando as variaveis
+    custo_viagens_sr = 0
+    for nome in nome_viagem_sr:
+        if m.getVarByName(nome).x == 1.0:
+            custo_viagens_sr += m.getVarByName(nome).x * custo_fixo
+            
+    custo_viagens_cr = 0        
+    for nome in nome_viagem_cr:
+        if m.getVarByName(nome).x == 1.0:
+            custo_viagens_cr += m.getVarByName(nome).x * custo_fixo
+
+    custo_ociosos = 0
+    for nome in nome_veiculos_o:
+        if m.getVarByName(nome).x == 1.0:
+            custo_ociosos += m.getVarByName(nome).x * custo_fixo
+
+
 
     if not os.path.exists('data/model_data.csv'):
         with open('data/model_data.csv', mode='a') as table:
             table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             table_writer.writerow(['inicio','arquivo','espaco_tempo','intervalo_tempo','n_veiculos',
-                                   'bonus','duracao(seg)','tamanho_amostra','realocacao','valor_objetivo','Gap'])
+                                   'bonus','duracao(seg)','tamanho_amostra','realocacao','valor_objetivo',
+                                   'Gap', 'custo_viagens_sr', 'custo_viagens_cr', 'custo_ociosos'])
 
     with open('data/model_data.csv', mode='a') as table:
         table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
         table_writer.writerow([t_inicial, path, time_space, time_interval, n_vehicles,
-                               bonus, duracao, len(data), realocacao, m.ObjVal, m.MIPGap])
+                               bonus, duracao, len(data), realocacao, m.ObjVal, 
+                               m.MIPGap, custo_viagens_sr, custo_viagens_cr, custo_ociosos ])
 
 
 if __name__ == "__main__":
