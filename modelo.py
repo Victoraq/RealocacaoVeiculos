@@ -17,6 +17,23 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+def haversine(lon1, lat1, lon2, lat2):
+    """
+    Calculate distance between the geo coordinates
+    """
+    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+
+    c = 2 * np.arcsin(np.sqrt(a))
+    m = 6367 * c * 1000
+
+    return m
+
+
 def geojson_builder(down_left,up_right,travels=0):
     """
     Build a rectangle geojson from two points.
@@ -95,12 +112,21 @@ def build_regions(data, points):
             start_travels = data.loc[start_lon_condition & start_lat_condition]
             end_travels = data.loc[end_lon_condition & end_lat_condition]
 
+            # Middle of the region
+            middle_lat = (down_left[1] + up_right[1])/2
+            middle_lon = (down_left[0] + up_right[0])/2
+
             # Build a geojson
             geojsons.append(geojson_builder(down_left,up_right, len(start_travels)+len(end_travels)))
 
-            # Changing start region of the travels
+            # Changing start region and end region of the travels
             data.loc[start_lon_condition & start_lat_condition, 'start_region'] = len(geojsons)-1
+            data.loc[start_lon_condition & start_lat_condition, start_lat] = middle_lat
+            data.loc[start_lon_condition & start_lat_condition, start_lon] = middle_lon
+
             data.loc[end_lon_condition & end_lat_condition, 'end_region'] = len(geojsons)-1
+            data.loc[end_lon_condition & end_lat_condition, end_lat] = middle_lat
+            data.loc[end_lon_condition & end_lat_condition, end_lon] = middle_lon
             
     data.dropna(axis=0, inplace=True)
 
@@ -198,6 +224,9 @@ def get_data(path, time_space='m', time_interval='1-w'):
     # removendo regioes sem viagens
     regions = [r for r in regions if r['features'][0]['properties']['arrivals_outs'] != 0]
     regions.insert(0,None)
+
+    # Adding a distance(m) column
+    data['distance'] = data.apply(lambda x: haversine(x.Start_lon,x.Start_lat,x.End_lon,x.End_lat), axis=1)
 
     data.reset_index(inplace=True, drop=True)
         
@@ -307,8 +336,11 @@ def main(argv):
     # preenchendo possibilidades de viagens e seus custos
     for t in map(tuple,data[['start_region','end_region','distance', 'price']].values):
         travel_possibilities.add((t[0], t[1]))
-        # custo da realocacao em relacao a distancia e assumindo uma velocidade de 60 km/h
-        custo_realocacao[(t[0],t[1])] = (t[2] / 1000) * 0.41  # metros/min
+
+        if t[0] != t[1]: # não existem realocações para o mesmo local
+            # custo da realocacao em relacao a distancia e assumindo uma velocidade de 60 km/h
+            custo_realocacao[(t[0],t[1])] = (t[2] / 1000) * 0.41  # metros/min
+        
         # custo da viagem é o custo real do dataset
         custo_real[(t[0],t[1])] = t[3]
     
@@ -328,6 +360,9 @@ def main(argv):
             end_region = data.end_region.loc[v]
             if realocacao:
                 for p in locais:
+                    if end_region == p: # viagens que terminam no mesmo lugar não são realocações
+                        continue
+
                     # Só é possível a realocação se em algum momento ocorreu uma viagem com mesma origem e destino
                     if (end_region,p) in travel_possibilities or p is None:
                         viagens_realizadas[(v,p)] = m.addVar(vtype=GRB.BINARY, name='x_'+str(v)+'_'+str(p))
