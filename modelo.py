@@ -14,7 +14,11 @@ import sys
 import os.path
 import csv
 import warnings
+import networkx as nx
+import datetime
 warnings.filterwarnings("ignore")
+
+grafo = nx.Graph()
 
 
 def haversine(lon1, lat1, lon2, lat2):
@@ -340,7 +344,7 @@ def main(argv):
         if t[0] != t[1]: # não existem realocações para o mesmo local
             # custo da realocacao em relacao a distancia e assumindo uma velocidade de 60 km/h
             custo_realocacao[(t[0],t[1])] = (t[2] / 1000) * 0.41  # metros/min
-        
+            
         # custo da viagem é o custo real do dataset
         custo_real[(t[0],t[1])] = t[3]
     
@@ -452,7 +456,7 @@ def main(argv):
     duracao = duracao.total_seconds()
     t_inicial = t_inicial.strftime("%d/%m/%Y %H:%M:%S")
     
-    viagens = data[['start_region', 'end_region']].values
+    viagens = data[['start_region', 'end_region', 'Star_time', 'End_time']].values
 
     ##calculando as variaveis
     lucro_viagens_sr = 0
@@ -472,9 +476,18 @@ def main(argv):
             viagem = viagens[int(viagem_id)]
 
             lucro_viagens_cr += m.getVarByName(nome).x * custo_real[(viagem[0],viagem[1])] # custo da viagem
-
+            a = (viagem[0], viagem[2])
+            b = (viagem[1], viagem[3])
+            grafo.add_node(a)
+            grafo.add_node(b)    
+            grafo.add_edge(a, b, 'color'= 'b')
+            
             valor_realoc = bonus * m.getVarByName(nome).x * custo_realocacao[(viagem[1],float(destino))] # custo da realocacao
-
+            minutos = int(custo_realocacao[(viagem[1],float(destino))]/0.41)
+            tempo = datetime.timedelta(minutes = minutos) + viagem[3]
+            grafo.add_node() 
+            
+            
             custo_viagens_cr += valor_realoc
 
     custo_ociosos = 0
