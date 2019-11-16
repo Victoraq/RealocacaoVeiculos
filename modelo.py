@@ -15,11 +15,11 @@ import os.path
 import csv
 import warnings
 import networkx as nx
-import datetime
+import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 
 grafo = nx.Graph()
-
+pos = nx.spring_layout(grafo)
 
 def haversine(lon1, lat1, lon2, lat2):
     """
@@ -254,7 +254,7 @@ def calcula_custo_realocacao(viagens, viagem_id, custo_realocacao, custo_real, l
 
 def main(argv):
 
-    path = '.'
+    path = 'data/evo_travels.csv'
     model_lp = None
     time_space='m'
     time_interval='1-d'
@@ -456,8 +456,9 @@ def main(argv):
     duracao = duracao.total_seconds()
     t_inicial = t_inicial.strftime("%d/%m/%Y %H:%M:%S")
     
-    viagens = data[['start_region', 'end_region', 'Star_time', 'End_time']].values
+    viagens = data[['start_region', 'end_region', 'Start_time', 'End_time']].values
 
+    inicio_coleta = data.Start_time.min()
     ##calculando as variaveis
     lucro_viagens_sr = 0
     for nome in nome_viagem_sr:
@@ -469,6 +470,8 @@ def main(argv):
     custo_viagens_cr = 0 
     lucro_viagens_cr = 0   
     cont_realoc = 0    
+    label={}
+    i = 0  
     for nome in nome_viagem_cr:
         if m.getVarByName(nome).x == 1.0:
             cont_realoc+=1
@@ -476,25 +479,59 @@ def main(argv):
             viagem = viagens[int(viagem_id)]
 
             lucro_viagens_cr += m.getVarByName(nome).x * custo_real[(viagem[0],viagem[1])] # custo da viagem
-            a = (viagem[0], viagem[2])
-            b = (viagem[1], viagem[3])
-            grafo.add_node(a)
-            grafo.add_node(b)    
-            grafo.add_edge(a, b, 'color'= 'b')
+            (viagem[2] - inicio_coleta).total_seconds()
+            a = (viagem[0],  (viagem[2] - inicio_coleta).total_seconds())
+            b = (viagem[1],  (viagem[3] - inicio_coleta).total_seconds())
+            nx.draw_networkx_nodes(grafo, pos,
+                       nodelist= a,
+                       node_color='white',
+                       node_size=500,
+                       alpha=0.8)
+            label[i] = r'$'+(viagem[0],  (viagem[2] - inicio_coleta).total_seconds())+'$'
+            i+=1
+            nx.draw_networkx_nodes(grafo, pos,
+                       nodelist= b,
+                       node_color='white',
+                       node_size=500,
+                       alpha=0.8)
+            #grafo.add_node(a)
+            #grafo.add_node(b)  
+            nx.draw_networkx_edges(grafo, pos,
+                       edgelist=[(a, b)],
+                       width=8, alpha=0.5, edge_color='b')
+            #grafo.add_edge(a, b, 'color'= 'b')
+            label[i] = r'$'+(viagem[1],  (viagem[3] - inicio_coleta).total_seconds())+'$'
+            i+=1
             
             valor_realoc = bonus * m.getVarByName(nome).x * custo_realocacao[(viagem[1],float(destino))] # custo da realocacao
             minutos = int(custo_realocacao[(viagem[1],float(destino))]/0.41)
             tempo = datetime.timedelta(minutes = minutos) + viagem[3]
-            grafo.add_node() 
+            c = (float(destino), (tempo - inicio_coleta).total_seconds())
+            nx.draw_networkx_nodes(grafo, pos,
+                       nodelist= c,
+                       node_color='white',
+                       node_size=500,
+                       alpha=0.8)
+            #rafo.add_node(c)
+           # grafo.add_edge(b, c, 'color'= 'red')
+            nx.draw_networkx_edges(grafo, pos,
+                       edgelist=[(b, c)],
+                       width=8, alpha=0.5, edge_color='r')
             
-            
+            label[i] = r'$'+(float(destino), (tempo - inicio_coleta).total_seconds())+'$'
+            i+=1
             custo_viagens_cr += valor_realoc
 
     custo_ociosos = 0
     for nome in nome_veiculos_o:
         custo_ociosos += m.getVarByName(nome).x * custo_fixo
 
+    nx.draw_networkx_labels(grafo, pos, label, font_size=16)
 
+    nx.draw(grafo, with_labels=True, font_weight='bold')
+#    plt.show()
+    plt.savefig("grafo.png")
+    
     if not os.path.exists('data/model_data.csv'):
         with open('data/model_data.csv', mode='a') as table:
             table_writer = csv.writer(table, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
