@@ -16,10 +16,12 @@ import csv
 import warnings
 import networkx as nx
 import matplotlib.pyplot as plt
+from networkx.drawing.nx_agraph import graphviz_layout
+from networkx.drawing.nx_pydot import write_dot
 warnings.filterwarnings("ignore")
 
 grafo = nx.Graph()
-pos = nx.spring_layout(grafo)
+pos =graphviz_layout(grafo, prog='dot')
 
 def haversine(lon1, lat1, lon2, lat2):
     """
@@ -182,6 +184,7 @@ def get_data(path, time_space='m', time_interval='1-w'):
                                   Ex: 5-w, irá ler dados de 5 semanas
     """
     data = pd.read_csv(path)
+    #data = data.loc[:200]
     print('Limpando dados...')
     data = limpeza(data) # limpando dados
     
@@ -456,7 +459,15 @@ def main(argv):
     duracao = duracao.total_seconds()
     t_inicial = t_inicial.strftime("%d/%m/%Y %H:%M:%S")
     
+    inicio_coleta = data.Start_time.min()
     viagens = data[['start_region', 'end_region', 'Start_time', 'End_time']].values
+    grafo_labels = {}
+    grafo_colors = {}
+    color = []
+    custo_ociosos = 0
+    for nome in nome_veiculos_o:
+        #grafo.add_node(tuple(nome.split('_')))
+        custo_ociosos += m.getVarByName(nome).x * custo_fixo
 
     inicio_coleta = data.Start_time.min()
     ##calculando as variaveis
@@ -465,6 +476,23 @@ def main(argv):
         if m.getVarByName(nome).x == 1.0:
             _, viagem_id, _ = nome.split('_')
             viagem = viagens[int(viagem_id)]
+
+            # formando label para o grafo
+            inicio_segundos = (viagem[2] - inicio_coleta).total_seconds()
+            fim_segundos = (viagem[3] - inicio_coleta).total_seconds()
+
+            no_inicial = 'p(' + str(int(viagem[0])) + ')_t(' + str(int(inicio_segundos)) + ')'
+            no_final = 'p(' + str(int(viagem[1])) + ')_t(' + str(int(fim_segundos)) + ')'
+
+            grafo_labels[(viagem[0],viagem[2])] = no_inicial
+            grafo_labels[(viagem[1],viagem[3])] = no_final
+            grafo_colors[(viagem[0],viagem[2])] = 'b'
+            grafo_colors[(viagem[1],viagem[3])] = 'b' 
+            color.append('b')
+            color.append('b')
+
+            grafo.add_edge(no_inicial,no_final) # adicionando aresta ao grafo
+
             lucro_viagens_sr += m.getVarByName(nome).x * custo_real[(viagem[0],viagem[1])]
             
     custo_viagens_cr = 0 
@@ -479,56 +507,46 @@ def main(argv):
             viagem = viagens[int(viagem_id)]
 
             lucro_viagens_cr += m.getVarByName(nome).x * custo_real[(viagem[0],viagem[1])] # custo da viagem
-            (viagem[2] - inicio_coleta).total_seconds()
-            a = (viagem[0],  (viagem[2] - inicio_coleta).total_seconds())
-            b = (viagem[1],  (viagem[3] - inicio_coleta).total_seconds())
-            nx.draw_networkx_nodes(grafo, pos,
-                       nodelist= a,
-                       node_color='white',
-                       node_size=500,
-                       alpha=0.8)
-            label[i] = r'$'+(viagem[0],  (viagem[2] - inicio_coleta).total_seconds())+'$'
-            i+=1
-            nx.draw_networkx_nodes(grafo, pos,
-                       nodelist= b,
-                       node_color='white',
-                       node_size=500,
-                       alpha=0.8)
-            #grafo.add_node(a)
-            #grafo.add_node(b)  
-            nx.draw_networkx_edges(grafo, pos,
-                       edgelist=[(a, b)],
-                       width=8, alpha=0.5, edge_color='b')
-            #grafo.add_edge(a, b, 'color'= 'b')
-            label[i] = r'$'+(viagem[1],  (viagem[3] - inicio_coleta).total_seconds())+'$'
-            i+=1
             
+            inicio_segundos = (viagem[2] - inicio_coleta).total_seconds()
+            fim_segundos = (viagem[3] - inicio_coleta).total_seconds()
+
+            no_inicial = 'p(' + str(int(viagem[0])) + ')_t(' + str(int(inicio_segundos)) + ')'
+            no_final = 'p(' + str(int(viagem[1])) + ')_t(' + str(int(fim_segundos)) + ')'
+
+            grafo_labels[(viagem[0],viagem[2])] = no_inicial
+            grafo_labels[(viagem[1],viagem[3])] = no_final
+            grafo_colors[(viagem[0],viagem[2])] = 'b'
+            grafo_colors[(viagem[1],viagem[3])] = 'b' 
+            color.append('b')
+            color.append('b')
+
+            grafo.add_edge(no_inicial,no_final) # adicionando aresta ao grafo
+            
+
+            # aresta de realocação
             valor_realoc = bonus * m.getVarByName(nome).x * custo_realocacao[(viagem[1],float(destino))] # custo da realocacao
             minutos = int(custo_realocacao[(viagem[1],float(destino))]/0.41)
-            tempo = datetime.timedelta(minutes = minutos) + viagem[3]
-            c = (float(destino), (tempo - inicio_coleta).total_seconds())
-            nx.draw_networkx_nodes(grafo, pos,
-                       nodelist= c,
-                       node_color='white',
-                       node_size=500,
-                       alpha=0.8)
-            #rafo.add_node(c)
-           # grafo.add_edge(b, c, 'color'= 'red')
-            nx.draw_networkx_edges(grafo, pos,
-                       edgelist=[(b, c)],
-                       width=8, alpha=0.5, edge_color='r')
+            tempo = timedelta(minutes = minutos) + viagem[3]
+            realocacao_segundos = (tempo - inicio_coleta).total_seconds()
+
+            no_inicial = 'p(' + str(int(viagem[1])) + ')_t(' + str(int(fim_segundos)) + ')'
+            no_final = 'p(' + str(int(float(destino))) + ')_t(' + str(int(realocacao_segundos)) + ')'
+
+            grafo.add_edge(no_inicial,no_final) # adicionando aresta ao grafo
             
-            label[i] = r'$'+(float(destino), (tempo - inicio_coleta).total_seconds())+'$'
-            i+=1
+            
             custo_viagens_cr += valor_realoc
 
-    custo_ociosos = 0
-    for nome in nome_veiculos_o:
-        custo_ociosos += m.getVarByName(nome).x * custo_fixo
+    pos =graphviz_layout(grafo, prog='dot')
+
+    nx.draw(grafo, pos, with_labels=True)
+    plt.savefig('data/grafo.png')
 
     nx.draw_networkx_labels(grafo, pos, label, font_size=16)
 
     nx.draw(grafo, with_labels=True, font_weight='bold')
+    write_dot(grafo, 'grafo.dot')
 #    plt.show()
     plt.savefig("grafo.png")
     
